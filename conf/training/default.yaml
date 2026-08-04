@@ -1,0 +1,8 @@
+lr: 0.05
+epochs: 300
+weight_decay: 0.0
+kernel_degree: 0
+use_ard: False
+jitter: 1e-6
+mode: deterministic
+cross_val: true

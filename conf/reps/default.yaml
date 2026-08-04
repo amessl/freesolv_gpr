@@ -1,0 +1,18 @@
+ensemble_path: ${data_root}/structures/ensembles_tier1.jsonl
+
+coulomb:
+  permutation: eigenspectrum
+  standardize: true
+  single_conformer: false # instead of enselmble use conformer with hghest Boltzmann weight, Sigma will be zeros
+  out: ${data_root}/reps/coulomb/descriptors_tier1.npz
+
+soap:
+  rcut: 2.0
+  nmax: 2
+  lmax: 2
+  sigma: 1.0
+  standardize: false
+  single_conformer: false
+  compress: true
+  out: ${data_root}/reps/soap/descriptors_tier1.npz
+

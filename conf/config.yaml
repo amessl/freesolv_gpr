@@ -1,0 +1,7 @@
+defaults:
+  - _self_
+  - data: default
+  - training: default
+  - reps: default
+
+data_root: /home/alex/freesolv_gpr/data

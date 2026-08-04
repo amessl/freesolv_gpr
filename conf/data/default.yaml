@@ -1,0 +1,3 @@
+npz_path: ${data_root}/reps/soap/descriptors_tier1.npz
+label_path: ${data_root}/freesolv.csv
+train_frac: 0.8
