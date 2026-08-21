@@ -15,7 +15,6 @@ Usage:
         --standardize
 """
 
-import argparse
 import json
 import sys
 from typing import List, Set
@@ -25,6 +24,7 @@ import numpy as np
 from ase import Atoms
 from dscribe.descriptors import SOAP
 from rdkit import Chem
+
 
 
 def molblock_to_ase_atoms(molblock: str) -> Atoms:
@@ -54,9 +54,11 @@ def compute_descriptors_for_molecule(record: dict, soap: SOAP) -> np.ndarray:
     """Returns an (n_conformers, descriptor_dim) array for one molecule."""
     atoms_list = [molblock_to_ase_atoms(c["molblock"]) for c in record["conformers"]]
     descriptors = np.asarray(soap.create(atoms_list, n_jobs=1))
+
     if descriptors.ndim == 1:
         # DScribe squeezes to a flat 1D array when given a single-Atoms list
         descriptors = descriptors.reshape(1, -1)
+
     return descriptors
 
 
@@ -73,7 +75,7 @@ def weighted_mean_std(descriptors: np.ndarray, weights: np.ndarray):
     return mu, sigma
 
 
-def main(cfg):
+def compute_soap_descriptors(cfg):
     with open(cfg.reps.ensemble_path) as f:
         records = [json.loads(line) for line in f if line.strip()]
     print(f"Loaded {len(records)} molecules", file=sys.stderr)
@@ -92,15 +94,17 @@ def main(cfg):
              "I": 2.66,
              "P": 2.19}
 
-    if cfg.reps.soap.compress:
-        compression = {"mode": "mu2",
-                       "species_weighting": props}
+    if cfg.reps.soap_options.compress:
+        compression = {"mode": "mu2"}
+
+# "species_weighting": props
+
     else:
         compression = {"mode": "off"}
 
     # Use vector SOAP by averaging over atoms to obtain a fixed-length per-structure descriptor
-    soap = SOAP(species=species, r_cut=cfg.reps.soap.rcut, n_max=cfg.reps.soap.nmax,
-                l_max=cfg.reps.soap.lmax, sigma=cfg.reps.soap.sigma, periodic=False, average='outer',
+    soap = SOAP(species=species, r_cut=cfg.reps.soap_params.rcut, n_max=int(cfg.reps.soap_params.nmax),
+                l_max=int(cfg.reps.soap_params.lmax), sigma=cfg.reps.soap_params.sigma, periodic=False, average='outer',
                 compression=compression)
 
     ids, mus, sigmas = [], [], []
@@ -109,7 +113,7 @@ def main(cfg):
         weights = weights / weights.sum()  # re-normalize defensively
 
         descriptors = compute_descriptors_for_molecule(record, soap)
-        if cfg.reps.soap.single_conformer:
+        if cfg.reps.soap_options.single_conformer:
             # Use the single conformer with highest Boltzmann weight
             idx_best = int(np.argmax(weights))
             mu = descriptors[idx_best]
@@ -127,7 +131,7 @@ def main(cfg):
     mus = np.vstack(mus)       # (n_molecules, descriptor_dim)
     sigmas = np.vstack(sigmas)  # (n_molecules, descriptor_dim)
 
-    if cfg.reps.soap.standardize:
+    if cfg.reps.soap_options.standardize:
         # dataset-level per-dimension standardization: subtract the global
         # mean of mu, divide by the global std of mu. Sigma is scaled by
         # the same per-dimension factor (not re-centered).
@@ -138,18 +142,25 @@ def main(cfg):
         sigmas = sigmas / global_std
         print("Applied dataset-level standardization to mu; scaled sigma by the same per-dimension factor.", file=sys.stderr)
 
+    return np.array(ids), mus, sigmas, species
+
+
+def save_descriptors(cfg):
+    """Compute and save descriptors to disk."""
+    ids, mus, sigmas, species = compute_soap_descriptors(cfg)
+
     np.savez(
-        cfg.reps.soap.out,
+        cfg.reps.soap_options.out,
         ids=np.array(ids),
         mu=mus,
         sigma=sigmas,
         species=np.array(species),
-        soap_params=dict(rcut=cfg.reps.soap.rcut, nmax=cfg.reps.soap.nmax,
-                         lmax=cfg.reps.soap.lmax, sigma=cfg.reps.soap.sigma),
-        standardized=cfg.reps.soap.standardize,
-        single_conformer=cfg.reps.soap.single_conformer,
+        soap_params=dict(rcut=cfg.reps.soap_params.rcut, nmax=int(cfg.reps.soap_params.nmax),
+                         lmax=int(cfg.reps.soap_params.lmax), sigma=cfg.reps.soap_params.sigma),
+        standardized=cfg.reps.soap_options.standardize,
+        single_conformer=cfg.reps.soap_options.single_conformer,
     )
-    print(f"Saved {mus.shape[0]} molecules x {mus.shape[1]}-dim SOAP descriptors to {cfg.reps.soap.out}", file=sys.stderr)
+    print(f"Saved {mus.shape[0]} molecules x {mus.shape[1]}-dim SOAP descriptors to {cfg.reps.soap_options.out}", file=sys.stderr)
 
 
 if __name__ == "__main__":
@@ -157,4 +168,4 @@ if __name__ == "__main__":
     with initialize(config_path="../conf", version_base="1.1"):
         cfg = compose(config_name="config")
 
-    main(cfg)
+    save_descriptors(cfg)

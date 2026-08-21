@@ -35,10 +35,12 @@ from omegaconf import DictConfig
 import numpy as np
 import torch
 import gpytorch
-from gpytorch.kernels import ScaleKernel, RBFKernel, GaussianSymmetrizedKLKernel
+from gpytorch.kernels import ScaleKernel, RBFKernel, GaussianSymmetrizedKLKernel, PolynomialKernel
 from gpytorch.means import ZeroMean
 from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.mlls import ExactMarginalLogLikelihood
+from src.preprocess import VarianceFloor
+from src.gaussian_expected_polynomial_kernel import GaussianExpectedPolynomialKernel
 
 
 def load_descriptors_npz(path: str) -> Dict[str, np.ndarray]:
@@ -93,10 +95,11 @@ class TrainConfig:
 
 
 class ExactGPRWithSKL(gpytorch.models.ExactGP):
-    def __init__(self, train_x: torch.Tensor, train_y: torch.Tensor, likelihood: GaussianLikelihood):
+    def __init__(self, train_x: torch.Tensor, train_y: torch.Tensor, likelihood: GaussianLikelihood, degree: int = 0):
         super().__init__(train_x, train_y, likelihood)
         self.mean_module = ZeroMean()
-        self.covar_module = ScaleKernel(GaussianSymmetrizedKLKernel())
+        base = GaussianSymmetrizedKLKernel() if degree == 0 else GaussianExpectedPolynomialKernel(power=degree)
+        self.covar_module = ScaleKernel(base)
 
     def forward(self, x: torch.Tensor):
         # Build covariance first to read off its batch shape and event size (N x N)
@@ -112,11 +115,11 @@ class ExactGPRWithSKL(gpytorch.models.ExactGP):
 
 class ExactGPRStandard(gpytorch.models.ExactGP):
     """Deterministic-input Exact GP with RBF kernel over descriptor means only."""
-    def __init__(self, train_x: torch.Tensor, train_y: torch.Tensor, likelihood: GaussianLikelihood, use_ard: bool = True):
+    def __init__(self, train_x: torch.Tensor, train_y: torch.Tensor, likelihood: GaussianLikelihood, use_ard: bool = True, degree: int = 0):
         super().__init__(train_x, train_y, likelihood)
         self.mean_module = ZeroMean()
         ard = train_x.shape[-1] if use_ard else None
-        base = RBFKernel(ard_num_dims=ard)
+        base = RBFKernel(ard_num_dims=ard) if degree == 0 else PolynomialKernel(power=degree)
         self.covar_module = ScaleKernel(base)
 
     def forward(self, x: torch.Tensor):
@@ -130,11 +133,11 @@ def _sample_inputs(mu: torch.Tensor, sigma: torch.Tensor) -> torch.Tensor:
     return mu + sigma * eps
 
 
-def train_gpr_uncertain(mu: np.ndarray, sigma: np.ndarray, y: np.ndarray, cfg: DictConfig):
+def train_gpr_uncertain(mu: torch.Tensor, var: torch.Tensor, y: np.ndarray, cfg: DictConfig):
     """Train an Exact GP using the Gaussian symmetrized-KL kernel.
 
     Args:
-      mu, sigma: numpy arrays (N, D) describing input distributions N(mu, diag(sigma^2)).
+      mu, var: numpy arrays (N, D) describing input distributions N(mu, diag(var)).
       y: numpy array (N,) of targets aligned with rows of mu/sigma.
       cfg: TrainConfig with training hyperparameters.
 
@@ -147,25 +150,45 @@ def train_gpr_uncertain(mu: np.ndarray, sigma: np.ndarray, y: np.ndarray, cfg: D
     dtype = torch.float32
 
     N, D = mu.shape
-    X_mu = torch.as_tensor(mu, dtype=dtype, device=device)
-    X_sigma = torch.as_tensor(sigma, dtype=dtype, device=device)
+    X_mu = mu
     y_t = torch.as_tensor(y, dtype=dtype, device=device)
 
-    # Concatenate [mu | log(var)] as required by the SKL kernel. Clamp var to avoid log(0).
+    # Defensive floor: do NOT rely solely on upstream preprocessing (VarianceFloor /
+    # DistributionalInputStandardizer) to guarantee var > 0. log() of a non-positive
+    # variance produces NaN/-inf, and a NaN anywhere in X_concat makes ExactGP's
+    # `torch.equal(train_input, input)` sanity check fail even when the identical tensor
+    # object is passed twice -- because NaN != NaN under IEEE float rules. This surfaces
+    # as the confusing "You must train on the training inputs!" error rather than a NaN
+    # error, which is what sent us on a long chase last time this happened.
+    var_floor = 1e-30  # far below any real variance scale we've seen in this project;
+                        # only meant to catch var <= 0 slipping through, not to define scale
+    n_bad = int((var <= 0).sum().item())
+    if n_bad > 0:
+        print(f"[warn] {n_bad} variance entries were <= 0 before flooring; clamping to {var_floor}")
+    var = var.clamp_min(var_floor)
+
+    var_term = var @ var.transpose(-1, -2)
+    mean_term = mu @ mu.transpose(-1, -2)
+    print("var-term range:", var_term.min().item(), var_term.max().item())
+    print("mean-term range:", mean_term.min().item(), mean_term.max().item())
+
+    # Concatenate [mu | log(var)] as required by the SKL kernel.
     # GaussianSymmetrizedKLKernel expects a FLAT (N, 2*D) tensor: first D columns are
     # means, last D columns are log-variances. (It does NOT want a stacked (N, D, 2)
     # tensor -- that adds a spurious extra dimension that gpytorch treats as a batch
     # dimension, which is what was causing the shape-mismatch crash.)
-    var = (X_sigma ** 2).clamp_min(1e-12)
     X_concat = torch.cat((X_mu, var.log()), dim=-1)  # (N, 2*D)
+    if not torch.isfinite(X_concat).all():
+        raise ValueError(
+            "X_concat contains NaN/Inf after building [mu | log(var)]. Check that mu "
+            "has no NaNs and that var is finite before it reaches train_gpr_uncertain "
+            "(this floor only guards var <= 0, not NaN already present in mu or var)."
+        )
     likelihood = GaussianLikelihood().to(device=device, dtype=dtype)
 
-    if cfg.training.kernel_degree == 0:
-        model = ExactGPRWithSKL(X_concat, y_t, likelihood).to(device=device, dtype=dtype)
-    else:
-        kernel = ScaleKernel(gpytorch.kernels.PolynomialKernel(power=cfg.training.kernel_degree))
-        model = ExactGPRWithSKL(X_concat, y_t, likelihood).to(device=device, dtype=dtype)
-        model.covar_module = kernel
+
+    model = ExactGPRWithSKL(X_concat, y_t, likelihood, degree=cfg.training.kernel_degree).to(device=device, dtype=dtype)
+
 
     model.train()
     likelihood.train()
@@ -196,7 +219,7 @@ def train_gpr_uncertain(mu: np.ndarray, sigma: np.ndarray, y: np.ndarray, cfg: D
 
 
 @torch.no_grad()
-def predict_gpr_uncertain(model: ExactGPRWithSKL, likelihood: GaussianLikelihood, mu: np.ndarray, sigma: np.ndarray, device: Optional[str] = None, dtype: Optional[torch.dtype] = None) -> Tuple[np.ndarray, np.ndarray]:
+def predict_gpr_uncertain(model: ExactGPRWithSKL, likelihood: GaussianLikelihood, mu: np.ndarray, var: np.ndarray, device: Optional[str] = None, dtype: Optional[torch.dtype] = None) -> Tuple[np.ndarray, np.ndarray]:
     """Deterministic prediction with the SKL kernel.
 
     Note: mc_samples and batch_size are accepted for backward compatibility but
@@ -211,21 +234,19 @@ def predict_gpr_uncertain(model: ExactGPRWithSKL, likelihood: GaussianLikelihood
         dtype = next(model.parameters()).dtype
 
     X_mu = torch.as_tensor(mu, dtype=dtype, device=device)
-    X_sigma = torch.as_tensor(sigma, dtype=dtype, device=device)
     # Match training representation: flat (N, 2*D) tensor, means then log-variances.
-    var = (X_sigma ** 2).clamp_min(1e-12)
     X_concat = torch.cat((X_mu, var.log()), dim=-1)  # (N, 2*D)
 
     out = likelihood(model(X_concat))
     mean = out.mean
-    var = out.variance
+    pred_var = out.variance
     # If the kernel produced a batched output (e.g., because the distributional axis
     # was treated as a batch), average predictions across batch dims to return (N,)
     while mean.dim() > 1:
         mean = mean.mean(dim=0)
-    while var.dim() > 1:
-        var = var.mean(dim=0)
-    return mean.detach().cpu().numpy(), var.detach().cpu().numpy()
+    while pred_var.dim() > 1:
+        pred_var = pred_var.mean(dim=0)
+    return mean.detach().cpu().numpy(), pred_var.detach().cpu().numpy()
 
 
 def rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -243,14 +264,16 @@ def nll_gaussian(y_true: np.ndarray, mean: np.ndarray, var: np.ndarray) -> float
     return float(0.5 * np.mean(np.log(2 * math.pi * var) + (y_true - mean) ** 2 / var))
 
 
-def evaluate_gpr_uncertain(model: ExactGPRWithSKL, likelihood: GaussianLikelihood, mu: np.ndarray, sigma: np.ndarray, y: Optional[np.ndarray] = None) -> Dict[str, float]:
-    mean, var = predict_gpr_uncertain(model, likelihood, mu, sigma)
+def evaluate_gpr_uncertain(model: ExactGPRWithSKL, likelihood: GaussianLikelihood, mu: np.ndarray, var: np.ndarray, y: Optional[np.ndarray] = None) -> Dict[str, float]:
+    mean, pred_var = predict_gpr_uncertain(model, likelihood, mu, var)
     metrics: Dict[str, float] = {}
     if y is not None:
         metrics["rmse"] = rmse(y, mean)
         metrics["mae"] = mae(y, mean)
-        metrics["nll"] = nll_gaussian(y, mean, var)
-    metrics["mean_var"] = float(np.mean(var))
+        metrics["nll"] = nll_gaussian(y, mean, pred_var)
+    metrics["mean_var"] = float(np.mean(pred_var))
+
+    print(pred_var)
     return metrics
 
 
@@ -276,7 +299,7 @@ def train_gpr_deterministic(mu: np.ndarray, y: np.ndarray, cfg: DictConfig):
     y_t = torch.as_tensor(y, dtype=dtype, device=device)
 
     likelihood = GaussianLikelihood().to(device=device, dtype=dtype)
-    model = ExactGPRStandard(X, y_t, likelihood, use_ard=cfg.training.use_ard).to(device=device, dtype=dtype)
+    model = ExactGPRStandard(X, y_t, likelihood, use_ard=cfg.training.use_ard, degree=cfg.training.kernel_degree).to(device=device, dtype=dtype)
 
     model.train()
     likelihood.train()
@@ -293,8 +316,8 @@ def train_gpr_deterministic(mu: np.ndarray, y: np.ndarray, cfg: DictConfig):
         loss = -mll(output, y_t)
         loss.backward()
         optimizer.step()
-        if (epoch % max(1, cfg.training.epochs // 10) == 0 or epoch == cfg.training.epochs - 1):
-            print(f"[train-det] epoch {epoch+1}/{cfg.training.epochs}  loss={float(loss.detach().cpu()):.4f}")
+        # if (epoch % max(1, cfg.training.epochs // 10) == 0 or epoch == cfg.training.epochs - 1):
+        #    print(f"[train-det] epoch {epoch+1}/{cfg.training.epochs}  loss={float(loss.detach().cpu()):.4f}")
 
     return model, likelihood
 
@@ -317,13 +340,15 @@ def predict_gpr_deterministic(model: ExactGPRStandard, likelihood: GaussianLikel
 
 
 def evaluate_gpr_deterministic(model: ExactGPRStandard, likelihood: GaussianLikelihood, mu: np.ndarray, y: Optional[np.ndarray] = None) -> Dict[str, float]:
-    mean, var = predict_gpr_deterministic(model, likelihood, mu)
+    mean, pred_var = predict_gpr_deterministic(model, likelihood, mu)
     metrics: Dict[str, float] = {}
     if y is not None:
         metrics["rmse"] = rmse(y, mean)
         metrics["mae"] = mae(y, mean)
-        metrics["nll"] = nll_gaussian(y, mean, var)
-    metrics["mean_var"] = float(np.mean(var))
+        metrics["nll"] = nll_gaussian(y, mean, pred_var)
+    metrics["mean_var"] = float(np.mean(pred_var))
+
+    print(pred_var)
     return metrics
 
 
@@ -445,7 +470,7 @@ def split_train_test_by_fraction(N: int, train_frac: float = 0.8, seed: int = 0)
     return idx[:n_train], idx[n_train:]
 
 
-def demo_train_test(npz_path: str, csv_labels_path: Optional[str] = None, seed: int = 0) -> Dict[str, float]: 
+def demo_train_test(npz_path: str, csv_labels_path: Optional[str] = None, seed: int = 0) -> Dict[str, float]:
     """Small convenience routine to train/test a model from the descriptors .npz.
 
     If csv_labels_path is provided (e.g., data/freesolv.csv), labels are read

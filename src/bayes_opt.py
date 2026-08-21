@@ -10,7 +10,7 @@ from botorch.optim import optimize_acqf
 from omegaconf import OmegaConf, DictConfig
 from typing import Union, Tuple, List
 from src.sampler import SamplingUtils
-from src.objective import ObjectiveFunction
+from src.objective import objective_function
 
 
 class BayesianOptimizer:
@@ -93,7 +93,7 @@ class BayesianOptimizer:
 
         candidate_list = candidate.flatten().tolist()
 
-        default_hyperparams = OmegaConf.to_container(self.config.rep.soap_params, resolve=True)
+        default_hyperparams = OmegaConf.to_container(self.config.reps.soap_params, resolve=True)
 
         for key, param in zip(default_hyperparams.keys(), candidate_list):
             default_hyperparams[key] = param
@@ -103,17 +103,11 @@ class BayesianOptimizer:
 
         # Update representation-specific hyperparams
         for key in default_hyperparams.keys():
-            updated_cfg.rep.soap_params[key] = default_hyperparams[key]
+            updated_cfg.reps.soap_params[key] = default_hyperparams[key]
 
         print(f"Updated config: {updated_cfg}")
 
-        obj_func = ObjectiveFunction(config=updated_cfg)
-        err_value = 0
-
-        if self.config.bayes_opt.learn_type_bo == 'ST':
-            err_value = -obj_func.objective_ST()[1]
-        elif self.config.bayes_opt.learn_type_bo == 'MT':
-            err_value = -obj_func.objective_MT()[1]
+        err_value = objective_function(updated_cfg)
 
         # Ensure err has shape (1, 1) to match y_train's (n, 1)
         err = torch.as_tensor(err_value, dtype=self.y_train.dtype).view(1, 1)
@@ -122,21 +116,3 @@ class BayesianOptimizer:
         self.y_train = torch.cat([self.y_train, err], dim=0)
 
         return candidate_list, err_value
-
-
-
-# TODO: cleanup and docs
-
-
-# Meeting 05.03.26
-# TODO: Use Train/validation split of dyes1-3 to optimize but also test on this dataset before testing transfer to dye4 (splitting has to be modified for that)
-# TODO: Use Bayesian Optimization instead of Pareto since it is intended for multi-objective where objectives can be conflicting
-# TODO: Optimize on excitation energies first and then on oscillator strengths (maybe use mean MSE as objective)
-# TODO: Check scaling of different properties
-
-# TODO: Create separate method for splitting specifically dyes1,2,3 into train and validation and test set and dyes4 as external validation (validate splitting method by comparing results with original method)
-
-# Meeting 12.03.26
-# TODO: MSE value of 0.1 eV (chemical accuracy 0.01-0.05 eV), keep in mind thst MSE becomes smaller
-# TODO: Find literature for testing XC-functionals for excitation energies (test sets for excitation energies)
-# TODO: Average of excitation MSEs as objective function

@@ -3,5 +3,6 @@ defaults:
   - data: default
   - training: default
   - reps: default
+  - bayes_opt: soap
 
 data_root: /home/alex/freesolv_gpr/data
