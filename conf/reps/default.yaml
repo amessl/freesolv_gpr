@@ -7,10 +7,10 @@ coulomb:
   out: ${data_root}/reps/coulomb/descriptors_tier1.npz
 
 soap_params:
-  rcut: 2.5
-  nmax: 2
-  lmax: 2
-  sigma: 0.7
+  rcut: 2.0
+  nmax: 1
+  lmax: 1
+  sigma: 1.0
 
 soap_options:
   standardize: false

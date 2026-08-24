@@ -5,5 +5,5 @@ kernel_degree: 1
 use_ard: false
 jitter: 1e-6
 variance_floor_percentile: 10.0
-mode: determinsitic
+mode: deterministic
 cross_val: false
