@@ -1,3 +1,4 @@
+import botorch.exceptions.errors
 import torch
 import numpy as np
 import sys
@@ -21,22 +22,15 @@ def run_bayes_opt(config: DictConfig) -> None:
 
     optimizer.fit_surrogate()
 
-    x_list, y_list = [], []
     prev_mse = None
 
     for counter in range(1, 1 + config.bayes_opt.runs):
         print(f'Iteration {counter}: \n'
               '-'*12)
+
         x, y = optimizer.update_surrogate()
+        print(f"Candidate error: {y}")
 
-
-        if isinstance(y, np.ndarray) and y.ndim > 1:  # Multi-objective case
-            y = y.tolist()
-        else:
-            y = float(y)  # For single-objective
-
-        x_list.append(x)
-        y_list.append(y)
 
         if prev_mse is not None and np.abs(prev_mse - np.mean(y)) < config.bayes_opt.tolerance:
             print(f"Optimization finished after {counter} iterations. MAE={y}, Hyperparams: {x}")

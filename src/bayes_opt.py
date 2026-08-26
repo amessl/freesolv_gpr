@@ -47,7 +47,7 @@ class BayesianOptimizer:
 
         return output_tensor, orig_shape
 
-    def fit_surrogate(self) -> torch.Tensor:
+    def fit_surrogate(self) -> Tuple[torch.Tensor, SingleTaskGP]:
 
         X_train = torch.tensor(self.X_train).to(torch.double)
         # y_train is already shaped (n, 1); avoid adding an extra dimension
@@ -62,7 +62,7 @@ class BayesianOptimizer:
         mll = ExactMarginalLogLikelihood(surrogate.likelihood, surrogate)
         fit_gpytorch_mll(mll)
 
-        logEI = LogExpectedImprovement(model=surrogate, best_f=y_train.max()) # watch out for sign of objective
+        logEI = LogExpectedImprovement(model=surrogate, best_f=y_train.min()) # watch out for sign of objective
 
         l_bounds, u_bounds = self.sampler.get_bounds()
         bounds = torch.stack([torch.tensor(l_bounds), torch.tensor(u_bounds)]).to(torch.double)
@@ -82,32 +82,52 @@ class BayesianOptimizer:
         # There are not enough distinct starting positions
         candidate, orig_shape = self.assert_dtypes(candidate.flatten().tolist())
 
-        return candidate.view(orig_shape)
+        return candidate.view(orig_shape), surrogate
+
 
     def update_surrogate(self) -> Tuple[List, torch.Tensor]:
 
-        candidate = self.fit_surrogate()
-        candidate, orig_shape = self.assert_dtypes(candidate)
+        candidate, surrogate = self.fit_surrogate()
 
-        print(f"New candidate: {candidate}")
+        while True:
+            candidate, orig_shape = self.assert_dtypes(candidate)
 
-        candidate_list = candidate.flatten().tolist()
+            print(f"New candidate: {candidate}")
 
-        default_hyperparams = OmegaConf.to_container(self.config.reps.soap_params, resolve=True)
+            candidate_list = candidate.flatten().tolist()
 
-        for key, param in zip(default_hyperparams.keys(), candidate_list):
-            default_hyperparams[key] = param
+            default_hyperparams = OmegaConf.to_container(self.config.reps.soap_params, resolve=True)
 
-        # Clone cfg
-        updated_cfg = OmegaConf.create(OmegaConf.to_container(self.config, resolve=True))
+            for key, param in zip(default_hyperparams.keys(), candidate_list):
+                default_hyperparams[key] = param
 
-        # Update representation-specific hyperparams
-        for key in default_hyperparams.keys():
-            updated_cfg.reps.soap_params[key] = default_hyperparams[key]
+            # Clone cfg
+            updated_cfg = OmegaConf.create(OmegaConf.to_container(self.config, resolve=True))
 
-        print(f"Updated config: {updated_cfg}")
+            # Update representation-specific hyperparams
+            for key in default_hyperparams.keys():
+                updated_cfg.reps.soap_params[key] = default_hyperparams[key]
 
-        err_value = objective_function(updated_cfg)
+            print(f"Updated config: {updated_cfg}")
+
+            err_value = objective_function(updated_cfg)
+
+            if not np.isnan(err_value):
+                break
+
+            print(f"Candidate {candidate_list} produced NaN. Rejecting and proposing new candidate.")
+            # Add failed candidate to training data with a very bad value to avoid it in the next iteration
+            # Since we maximize LogEI, a very small value (large negative) will discourage the optimizer
+            # But we don't want to mess up the GP too much.
+            # Alternatively, we can just re-optimize the acquisition function with the failed point added to the GP.
+            # But wait, if we add it to the GP with a very bad value, we should refit the GP.
+            
+            # Simple approach: add to X_train and y_train with a very bad value and refit
+            failed_err = torch.tensor([[-1e9]], dtype=self.y_train.dtype)
+            self.X_train = torch.cat([self.X_train, candidate.view(orig_shape)], dim=0)
+            self.y_train = torch.cat([self.y_train, failed_err], dim=0)
+            
+            candidate, surrogate = self.fit_surrogate()
 
         # Ensure err has shape (1, 1) to match y_train's (n, 1)
         err = torch.as_tensor(err_value, dtype=self.y_train.dtype).view(1, 1)

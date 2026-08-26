@@ -7,7 +7,8 @@ from .gpr_uncertain import (
     split_train_test_by_fraction
 )
 from .compute_soap_descriptors import compute_soap_descriptors
-
+import numpy as np
+import linear_operator
 
 def objective_function(cfg: DictConfig):
 
@@ -28,6 +29,8 @@ def objective_function(cfg: DictConfig):
     tr_idx, te_idx = split_train_test_by_fraction(len(ids), cfg.data.train_frac, seed=0)
     mu_tr, sg_tr, y_tr = mu[tr_idx], sigma[tr_idx], y[tr_idx]
 
-    mean_cv_mae = kfold_cv_mae_gpr_deterministic(mu_tr, y_tr, cfg)
-
+    try:
+        mean_cv_mae = kfold_cv_mae_gpr_deterministic(mu_tr, y_tr, cfg)
+    except linear_operator.utils.errors.NotPSDError:
+        mean_cv_mae = np.nan
     return mean_cv_mae

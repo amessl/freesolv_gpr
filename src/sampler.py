@@ -93,5 +93,17 @@ class SamplingUtils:
         with Pool(processes=1) as pool:
             error_list = pool.map(self.worker, tasks)
 
+        valid = [
+            (err, hp)
+            for err, hp in zip(error_list, hyperparam_combinations)
+            if not np.isnan(err)
+        ]
+
+        error_list = [err for err, hp in valid]
+        hyperparam_combinations = [hp for err, hp in valid]
+
+        n_failed = self.n_init_samples - len(error_list)
+        print(f"{n_failed} samples failed and were removed from initial samples")
+        print(error_list)
 
         return error_list, hyperparam_combinations
