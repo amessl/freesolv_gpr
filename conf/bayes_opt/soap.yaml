@@ -1,18 +1,18 @@
 # Settings for LHS sampler and Bayes optimizer
 sampler: lhs
-n_init_samples: 5 # rule of thumb: X_dim x 10
-num_restarts: 10
-raw_samples: 100 # rule of thumb: raw_samples >= num_restarts x 10
+n_init_samples: 40 # rule of thumb: X_dim x 10
+num_restarts: 20
+raw_samples: 200 # rule of thumb: raw_samples >= num_restarts x 10
 bounds: 
-  - [2.0, 1, 1, 0.5]
-  - [6.0, 7, 7, 1.0] # adjust to total search space given in grid_search config
+  - [2.0, 1, 1, 0.25]
+  - [5.0, 8, 8, 1.0] # adjust to total search space given in grid_search config
 dtype_pattern: [float, int, int, float]
 
 grid:
-  rcut: [2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0]
-  nmax: [1, 2, 3, 4, 5, 6, 7]
-  lmax: [1, 2, 3, 4, 5, 6, 7]
-  sigma: [0.1, 0.25, 0.5, 1.0, 1.25, 1.5]
+  rcut: [2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0]
+  nmax: [1, 2, 3, 4, 5, 6, 7, 8]
+  lmax: [1, 2, 3, 4, 5, 6, 7, 8]
+  sigma: [0.25, 0.5, 0.75, 1.0]
 
 runs: 100
-tolerance: 0.001
+tolerance: 0.0001

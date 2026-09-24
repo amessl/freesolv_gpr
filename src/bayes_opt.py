@@ -62,7 +62,7 @@ class BayesianOptimizer:
         mll = ExactMarginalLogLikelihood(surrogate.likelihood, surrogate)
         fit_gpytorch_mll(mll)
 
-        logEI = LogExpectedImprovement(model=surrogate, best_f=y_train.min()) # watch out for sign of objective
+        logEI = LogExpectedImprovement(model=surrogate, best_f=y_train.min(), maximize=False) # watch out for sign of objective
 
         l_bounds, u_bounds = self.sampler.get_bounds()
         bounds = torch.stack([torch.tensor(l_bounds), torch.tensor(u_bounds)]).to(torch.double)
@@ -108,7 +108,7 @@ class BayesianOptimizer:
             for key in default_hyperparams.keys():
                 updated_cfg.reps.soap_params[key] = default_hyperparams[key]
 
-            print(f"Updated config: {updated_cfg}")
+            #print(f"Updated config: {updated_cfg}")
 
             err_value = objective_function(updated_cfg)
 
@@ -117,13 +117,9 @@ class BayesianOptimizer:
 
             print(f"Candidate {candidate_list} produced NaN. Rejecting and proposing new candidate.")
             # Add failed candidate to training data with a very bad value to avoid it in the next iteration
-            # Since we maximize LogEI, a very small value (large negative) will discourage the optimizer
-            # But we don't want to mess up the GP too much.
-            # Alternatively, we can just re-optimize the acquisition function with the failed point added to the GP.
-            # But wait, if we add it to the GP with a very bad value, we should refit the GP.
-            
-            # Simple approach: add to X_train and y_train with a very bad value and refit
-            failed_err = torch.tensor([[-1e9]], dtype=self.y_train.dtype)
+            # Use a value that is worse than the current worst but not so large it ruins standardization
+            current_max = self.y_train[self.y_train < 1e8].max() if (self.y_train < 1e8).any() else torch.tensor(1.0)
+            failed_err = torch.tensor([[current_max + 1.0]], dtype=self.y_train.dtype)
             self.X_train = torch.cat([self.X_train, candidate.view(orig_shape)], dim=0)
             self.y_train = torch.cat([self.y_train, failed_err], dim=0)
             

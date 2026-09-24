@@ -78,10 +78,10 @@ def weighted_mean_std(descriptors: np.ndarray, weights: np.ndarray):
 def compute_soap_descriptors(cfg):
     with open(cfg.reps.ensemble_path) as f:
         records = [json.loads(line) for line in f if line.strip()]
-    print(f"Loaded {len(records)} molecules", file=sys.stderr)
+    # print(f"Loaded {len(records)} molecules", file=sys.stderr)
 
     species = determine_species(records)
-    print(f"Species across dataset = {species}", file=sys.stderr)
+    # print(f"Species across dataset = {species}", file=sys.stderr)
 
     props = {"H": 2.20,
              "C": 2.55,
@@ -125,8 +125,8 @@ def compute_soap_descriptors(cfg):
         mus.append(mu)
         sigmas.append(sigma)
 
-        if (i + 1) % 50 == 0:
-            print(f"  {i + 1}/{len(records)} molecules processed", file=sys.stderr)
+        #if (i + 1) % 50 == 0:
+        #    print(f"  {i + 1}/{len(records)} molecules processed", file=sys.stderr)
 
     mus = np.vstack(mus)       # (n_molecules, descriptor_dim)
     sigmas = np.vstack(sigmas)  # (n_molecules, descriptor_dim)

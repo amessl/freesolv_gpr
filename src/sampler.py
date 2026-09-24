@@ -4,6 +4,7 @@ from scipy.stats import qmc
 from omegaconf import OmegaConf, DictConfig
 from multiprocessing import Pool
 from src.objective import objective_function
+from datetime import datetime
 
 
 class SamplingUtils:
@@ -86,12 +87,14 @@ class SamplingUtils:
 
             tasks.append(hyperparams_dict)
 
-            print(hyperparams_dict)
-
             hyperparam_combinations.append(hyperparams)
 
         with Pool(processes=1) as pool:
-            error_list = pool.map(self.worker, tasks)
+            error_list = []
+            for i, err in enumerate(pool.imap(self.worker, tasks), 1):
+                error_list.append(err)
+                print(f"[{datetime.now():%H:%M:%S}] Finished initial sample {i}/{len(tasks)} (error={err})", flush=True)
+            print(len(error_list))
 
         valid = [
             (err, hp)

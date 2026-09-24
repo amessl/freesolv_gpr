@@ -1,4 +1,4 @@
-npz_path: ${data_root}/reps/soap/descriptors_tier1.npz
+npz_path: ${data_root}/reps/freesolv/soap/descriptors_tier1.npz
 label_path: ${data_root}/freesolv.csv
 train_frac: 0.8
 generate_on_fly: true

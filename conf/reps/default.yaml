@@ -1,4 +1,4 @@
-ensemble_path: ${data_root}/structures/ensembles_tier1.jsonl
+ensemble_path: ${data_root}/structures/freesolv/ensembles_tier1.jsonl
 
 coulomb:
   permutation: sorted_l2
@@ -16,5 +16,5 @@ soap_options:
   standardize: false
   single_conformer: false
   compress: false
-  out: ${data_root}/reps/soap/descriptors_tier1.npz
+  out: ${data_root}/reps/soap/freesolv/descriptors_tier1.npz
 

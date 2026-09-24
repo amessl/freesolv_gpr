@@ -42,6 +42,9 @@ def _gaussian_moment_inner_product(dist1: torch.Tensor, dist2: torch.Tensor) -> 
 
     Returns:
         batch x n x m tensor of inner products.
+
+    # TODO: try artificially lowering the input uncertainties to zero (stepwise) and compare performances of different kernels (KL div and expected polynomial kernel)
+    # TODO: Select molecules based on their conformer ensemble variance (categorical) and consider how input uncertainty affects final uncertainty
     """
     num_dims = int(dist1.shape[-1] / 2)
 
