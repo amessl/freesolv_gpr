@@ -23,7 +23,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from rdkit import Chem
 
-from src.conformer_ensemble_tier1 import build_ensemble
+from conformer_ensemble_tier1 import build_ensemble
 
 from datasets import load_dataset
 
@@ -60,18 +60,24 @@ def already_done(out_path: str) -> set:
     return done
 
 
-def main(dataset_name: str):
+def main():
     ap = argparse.ArgumentParser()
     # ap.add_argument("input_csv", help="CSV with columns: id,smiles")
+    ap.add_argument("--dataset", choices=["freesolv", "esol", "lipo"])
+
     ap.add_argument("--tier", choices=["tier1", "xtb"], default="tier1")
     ap.add_argument("--out", required=True, help="output JSONL path")
     ap.add_argument("--workers", type=int, default=os.cpu_count() or 4)
     args = ap.parse_args()
 
-    dataset = load_dataset(dataset_name, split="train")
-    dataset.to_csv("freesolv.csv")
+    dataset_dict = {"freesolv": "scikit-fingerprints/MoleculeNet_FreeSolv",
+                    "esol": "scikit-fingerprints/MoleculeNet_ESOL",
+                    "lipo": "scikit-fingerprints/MoleculeNet_Lipophilicity"}
 
-    with open("freesolv.csv") as f:
+    dataset = load_dataset(dataset_dict[args.dataset], split="train")
+    dataset.to_csv(f"../data/{args.dataset}.csv")
+
+    with open(f"../data/{args.dataset}.csv") as f:
         reader = csv.DictReader(f)
         molecules = [(i, row["SMILES"]) for i, row in enumerate(reader)]
 
@@ -107,4 +113,4 @@ def main(dataset_name: str):
 
 
 if __name__ == "__main__":
-    main("scikit-fingerprints/MoleculeNet_FreeSolv")
+    main()

@@ -1,10 +1,10 @@
-ensemble_path: ${data_root}/structures/freesolv/ensembles_tier1.jsonl
+ensemble_path: ${data_root}/structures/${dataset}/ensembles_tier1.jsonl
 
 coulomb:
   permutation: sorted_l2
   standardize: false
   single_conformer: false # instead of enselmble use conformer with hghest Boltzmann weight, Sigma will be zeros
-  out: ${data_root}/reps/coulomb/descriptors_tier1.npz
+  out: ${data_root}/reps/coulomb/${dataset}/descriptors_tier1.npz
 
 soap_params:
   rcut: 2.0
@@ -16,5 +16,5 @@ soap_options:
   standardize: false
   single_conformer: false
   compress: false
-  out: ${data_root}/reps/soap/freesolv/descriptors_tier1.npz
+  out: ${data_root}/reps/${dataset}/soap/descriptors_tier1.npz
 

@@ -20,12 +20,16 @@ def run_bayes_opt(config: DictConfig) -> None:
     if y_init.ndim == 1:
         y_init = y_init[:, None] #
 
+    print('Optimizer initialized.')
+
     optimizer.X_train = torch.as_tensor(X_init, dtype=torch.double)
     optimizer.y_train = torch.as_tensor(y_init, dtype=torch.double)
 
     optimizer.fit_surrogate()
 
     prev_mse = None
+
+    print('Initial Fit done.')
 
     for counter in range(1, 1 + config.bayes_opt.runs):
         print(f'Iteration {counter}:')
@@ -61,7 +65,6 @@ def run_bayes_opt(config: DictConfig) -> None:
 
 
 if __name__ == "__main__":
-
     overrides = sys.argv[1:]
 
     with initialize(config_path="../conf", version_base="1.1"):

@@ -348,7 +348,9 @@ def evaluate_gpr_deterministic(model: ExactGPRStandard, likelihood: GaussianLike
         metrics["nll"] = nll_gaussian(y, mean, pred_var)
     metrics["mean_var"] = float(np.mean(pred_var))
 
-    print(pred_var)
+    # Print predictive variances
+    # print(pred_var)
+
     return metrics
 
 

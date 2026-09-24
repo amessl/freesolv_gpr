@@ -6,3 +6,4 @@ defaults:
   - bayes_opt: soap
 
 data_root: /home/alex/freesolv_gpr/data
+dataset: esol

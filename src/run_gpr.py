@@ -91,6 +91,7 @@ def main(cfg: DictConfig):
         if cfg.training.cross_val:
             mean_cv_mae = kfold_cv_mae_gpr_deterministic(mu_tr, y_tr, cfg)
             print(f'CV-MAE:{mean_cv_mae}')
+
     print({k: float(v) for k, v in metrics.items()})
 
 
