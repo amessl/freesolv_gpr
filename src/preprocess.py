@@ -144,7 +144,7 @@ class DistributionalInputStandardizer:
         self.mean_scale: torch.Tensor | None = None
         self.var_scale: torch.Tensor | None = None
 
-    def fit(self, mean: torch.Tensor, var: torch.Tensor, var_floor_value: float | None = None,
+    def fit(self, mean: torch.Tensor, var: torch.Tensor, var_floor_value: float,
             min_informative: int = 3) -> "DistributionalInputStandardizer":
         """Compute standardization statistics from training means/variances (shape N x d each).
 
