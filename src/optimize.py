@@ -45,7 +45,7 @@ def run_bayes_opt(config: DictConfig) -> None:
             mse_change = np.abs(prev_mse - current_mse)
 
             if np.isclose(prev_mse, current_mse):
-                print("MSE unchanged — continuing optimization.")
+                print("MAE unchanged — continuing optimization.")
 
             elif mse_change < config.bayes_opt.tolerance:
                 print(
